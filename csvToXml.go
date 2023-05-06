@@ -23,6 +23,34 @@ type Collection struct {
     Tracks  []Track  `xml:"COLLECTION>TRACK"`
 }
 
+type CustomCSVReader struct {
+    reader *csv.Reader
+}
+
+func NewCustomCSVReader(r io.Reader) *CustomCSVReader {
+    data, err := io.ReadAll(r)
+    if err != nil {
+        panic(err)
+    }
+
+    reader := csv.NewReader(strings.NewReader(string(data)))
+    reader.LazyQuotes = true
+    reader.TrimLeadingSpace = true
+
+    return &CustomCSVReader{reader: reader}
+}
+
+func (c *CustomCSVReader) Read() ([]string, error) {
+    record, err := c.reader.Read()
+    if err != nil {
+        return nil, err
+    }
+    for i := range record {
+        record[i] = strings.Trim(record[i], "\"")
+    }
+    return record, nil
+}
+
 func main() {
     // read input file
     file, err := os.Open("input.csv")
@@ -31,25 +59,37 @@ func main() {
     }
     defer file.Close()
 
-    // parse input file into slice of tracks
+    // parse input file into a slice of tracks
     var tracks []Track
-    lines := csv.NewReader(file)
-    for i := 0; ; i++ {
-        line, err := lines.Read()
+    reader := NewCustomCSVReader(file)
+    lineCount := 0
+    for {
+        line, err := reader.Read()
         if err == io.EOF {
             break
         } else if err != nil {
             panic(err)
-        } else if (line[1] == "Title" && line[2] == "Artist") {
+        }
+        lineCount++
+
+        // Skip the header line
+        if lineCount == 1 {
             continue
         }
+
+        if len(line) != 12 {
+            fmt.Printf("LENGTH=[%d]", len(line))
+            fmt.Printf("Record on line %d: wrong number of fields\n", lineCount)
+            continue
+        }
+
         track := Track{
-            TrackID:  i,
+            TrackID:  lineCount - 1,
             Name:     line[1],
             Artist:   line[2],
             Album:    line[3],
             Genre:    line[6],
-            Location: fmt.Sprintf("file://localhost%s", strings.Trim(line[11], "\"")),
+            Location: fmt.Sprintf("file://localhost%s", line[11]),
         }
         tracks = append(tracks, track)
     }
@@ -61,13 +101,17 @@ func main() {
         panic(err)
     }
 
-    // write xmlOutput to output.xml
+
+    // Create the output.xml file
     outputFile, err := os.Create("output.xml")
     if err != nil {
         panic(err)
     }
     defer outputFile.Close()
 
+    // Write XML header and content to the output file
     outputFile.Write([]byte(xml.Header))
     outputFile.Write(xmlOutput)
+
+    fmt.Println("Output.xml file created successfully.")
 }
